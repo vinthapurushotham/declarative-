@@ -1,0 +1,67 @@
+pipeline {
+ tools {
+     
+	 maven = "maven 3.3.9"
+	 jdk = "jdk 8.4.0"
+	   }
+	   agent label : ""
+	   
+	   stages {
+	      stage ('build')
+		  {
+		  sh 'mvn clean install -Dmaven.test.failure.ignore=true'
+		  }
+		      }
+postbuild{
+    always{
+	     archive "target/**/*"
+		 juint 'target/surefire-report/*.xml'
+		 }
+		 }
+			  
+		
+	notifications{
+	    success{
+		    mail(to:"vpreddy@primesoft.net", subject:SUCCESS",
+			     body: "passed")
+			    }
+	    failure{
+		    mail (to:"vpreddy@primesoft.net", subject:FAILURE",
+			     body: "failed")
+				}
+		unstable{
+		    mail (to:"vpreddy@primesoft.net", subject:UNSTABLE",
+			     body: "unstable")
+				 }
+	pipeline{
+	    agent none
+		    stages {
+			    stage ('distribute')
+				   parallel(
+				      "windows":{
+					      node('windows'){
+						        bat "print from windows"
+								}
+								},
+								"linux" :{
+								    node('linux'){
+									       sh "echo from linux"
+										          }
+										  }
+								 }
+						  }						 
+					}
+		    }
+    pipeline{
+	    agent docker:'ubuntu'
+		environment {
+		     KITTENS = "furry"
+			 BANANAS = "GREAT"
+			 }
+		 stages{
+		    stage("testing 123"){
+			    sh 'echo "kittens are ${KITTENS}"'
+				echo "Bananas are ${env.Bananas}"
+				                }
+			        }
+		    }  
