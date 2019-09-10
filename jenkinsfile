@@ -1,67 +1,102 @@
 pipeline {
- tools {
-     
-	 maven = "maven 3.3.9"
-	 jdk = "jdk 8.4.0"
-	   }
-	   agent label : ""
-	   
-	   stages {
-	      stage ('build')
-		  {
-		  sh 'mvn clean install -Dmaven.test.failure.ignore=true'
-		  }
-		      }
-postbuild{
-    always{
-	     archive "target/**/*"
-		 juint 'target/surefire-report/*.xml'
-		 }
-		 }
-			  
-		
-	notifications{
-	    success{
-		    mail(to:"vpreddy@primesoft.net", subject:SUCCESS",
-			     body: "passed")
-			    }
-	    failure{
-		    mail (to:"vpreddy@primesoft.net", subject:FAILURE",
-			     body: "failed")
+    agent any
+stages{
+stage('scm') {
+      steps{
+			git credentialsId: 'jenkins',url: 'ssh://jenkinsstage@3.92.168.203:29418/Sapience/OEEDataCollection'
+			}
+			}
+stage('maven') {
+      steps{
+        dir('oeeDataCollection'){
+            def descriptor = Artifactory.mavenDescriptor()
+            descriptor.version = cfipVersion
+            descriptor.pomFile = 'pom.xml'
+            descriptor.transform()
+            
+            artifactoryServer = Artifactory.server 'cimetrixArtifactory'
+            mavenBuild = Artifactory.newMavenBuild()
+            mavenBuild.deployer server: artifactoryServer, releaseRepo: 'factoryInsight-OEEDataCollection', snapshotRepo: 'factoryInsight-OEEDataCollection'
+            mavenBuild.deployer.deployArtifacts = false
+            mavenBuild.tool = 'maven-3.3.9'
+            
+            buildInfo = mavenBuild.run pom: 'pom.xml', goals: '-s C:\\Users\\Administrator\\Desktop\\settings.xml clean org.jacoco:jacoco-maven-plugin:prepare-agent install'       
+			}
+		}
+	}
+	stage('sonar') {
+	    steps{
+        def scannerHome = tool 'scanner';
+        withSonarQubeEnv('sonar') {
+            dir('oeeDataCollection') {
+                bat """
+                    set SONAR_SCANNER_OPTS="-Xmx1024m"
+                    "${scannerHome}/bin/sonar-scanner"
+                """
 				}
-		unstable{
-		    mail (to:"vpreddy@primesoft.net", subject:UNSTABLE",
-			     body: "unstable")
-				 }
-	pipeline{
-	    agent none
-		    stages {
-			    stage ('distribute')
-				   parallel(
-				      "windows":{
-					      node('windows'){
-						        bat "print from windows"
-								}
-								},
-								"linux" :{
-								    node('linux'){
-									       sh "echo from linux"
-										          }
-										  }
-								 }
-						  }						 
-					}
-		    }
-    pipeline{
-	    agent docker:'ubuntu'
-		environment {
-		     KITTENS = "furry"
-			 BANANAS = "GREAT"
-			 }
-		 stages{
-		    stage("testing 123"){
-			    sh 'echo "kittens are ${KITTENS}"'
-				echo "Bananas are ${env.Bananas}"
-				                }
-			        }
-		    }  
+			}
+		  }
+		}
+		stage("quality-gate"){
+		     steps{
+           waitUntil {
+            def analysisComplete = false
+            def status = getAnalysisStatus()
+            switch (status) {
+                case "SUCCESS":
+                    analysisComplete = true
+                    echo "Quality Gate analysis completed"
+                    break;
+                case "CANCELLED":
+                case "FAILURE":
+                    analysisComplete = true
+                    error("Quality Gate analysis did not completed ok, analysis status is: " + status)
+                    break;
+                case "PENDING":
+                case "IN_PROGRESS":
+                    echo "Quality Gate analysis is still pending..."
+                    break;
+                default:
+                    error("Analysis status not recognized: " + status)
+                    break;
+                }
+            analysisComplete
+              }
+        def result = getAnalysisResult()
+        switch (result) {
+            case "ERROR":
+                error("Quality Gate not reached, breaking CI build")
+                break;
+            case "OK":
+                echo "Quality Gate has been reached"
+                break;
+            default:
+                error("Analysis result not recognized: " + result)
+                break;
+			}
+		}
+stage('artifactory') {
+      steps{
+        mavenBuild.deployer.deployArtifacts buildInfo
+        artifactoryServer.publishBuildInfo buildInfo
+		}
+	}
+	//stage('deploy') {
+	         steps{
+        //dir('oeeDataCollection/oeeDataCollectionWeb'){
+        //    def mavenDeploy
+         //   def deployInfo
+    
+         //   mavenDeploy = Artifactory.newMavenBuild()
+         //   mavenDeploy.tool = 'maven-3.3.9'
+            
+         //   deployInfo = mavenDeploy.run pom: 'pom.xml', goals: '-s C:\\WRKSPC\\workspace\\CSP_OEE_Data_Collection\\maven\\dev-settings.xml wildfly:deploy-only'       
+		//	}
+		//}
+	}
+
+   }
+}
+	
+}	
+		
